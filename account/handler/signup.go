@@ -5,6 +5,7 @@ import (
 	"github.com/JOn2Thou/memrizr/account/model/apperrors"
 	"github.com/gin-gonic/gin"
 	"log"
+	"net/http"
 )
 
 // signupReq is not exported, hence the lowercase name
@@ -29,8 +30,8 @@ func (h *Handler) Signup(c *gin.Context) {
 		Email:    req.Email,
 		Password: req.Password,
 	}
-
-	err := h.UserService.Signup(c, u)
+	ctx := c.Request.Context()
+	err := h.UserService.Signup(ctx, u)
 
 	if err != nil {
 		log.Printf("Failed to sign up user: %v\n", err.Error())
@@ -39,4 +40,23 @@ func (h *Handler) Signup(c *gin.Context) {
 		})
 		return
 	}
+	// create token pair as strings
+	tokens, err := h.TokenService.NewPairFromUser(ctx, u, "")
+
+	if err != nil {
+		log.Printf("Failed to create tokens for user: %v\n", err.Error())
+
+		// may eventually implement rollback logic here
+		// meaning, if we fail to create tokens after creating a user,
+		// we make sure to clear/delete the created user in the database
+
+		c.JSON(apperrors.Status(err), gin.H{
+			"error": err,
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"tokens": tokens,
+	})
 }

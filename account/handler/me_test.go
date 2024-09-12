@@ -33,7 +33,8 @@ func TestMe(t *testing.T) {
 		}
 
 		mockUserService := new(mocks.MockUserService)
-		mockUserService.On("Get", mock.AnythingOfType("*gin.Context"), uid).Return(mockUserResp, nil)
+
+		mockUserService.On("Get", mock.Anything, uid).Return(mockUserResp, nil)
 
 		// a response recorder for getting written http response
 		rr := httptest.NewRecorder()
@@ -43,6 +44,8 @@ func TestMe(t *testing.T) {
 		// is the UID
 		router := gin.Default()
 		router.Use(func(c *gin.Context) {
+			fmt.Printf("哈哈哈哈Context type: %T\n", c.Request.Context())
+
 			c.Set("user", &model.User{
 				UID: uid,
 			},
@@ -64,25 +67,32 @@ func TestMe(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
-		assert.Equal(t, 200, rr.Code)
+		assert.Equal(t, http.StatusOK, rr.Code)
 		assert.Equal(t, respBody, rr.Body.Bytes())
 		mockUserService.AssertExpectations(t) // assert that UserService.Get was called
 	})
 
 	t.Run("NoContextUser", func(t *testing.T) {
-		MockUserService := new(mocks.MockUserService)
-		MockUserService.On("GET", mock.AnythingOfType("*gin.Context")).Return(nil, nil)
+		mockUserService := new(mocks.MockUserService)
+		mockUserService.On("Get", mock.Anything, mock.Anything).Return(nil, nil)
+
+		// a response recorder for getting written http response
 		rr := httptest.NewRecorder()
+
+		// do not append user to context
 		router := gin.Default()
 		NewHandler(&Config{
 			R:           router,
-			UserService: MockUserService,
+			UserService: mockUserService,
 		})
+
 		request, err := http.NewRequest(http.MethodGet, "/me", nil)
 		assert.NoError(t, err)
+
 		router.ServeHTTP(rr, request)
-		assert.Equal(t, 500, rr.Code)
-		MockUserService.AssertNotCalled(t, "GET", mock.Anything)
+
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
+		mockUserService.AssertNotCalled(t, "Get", mock.Anything)
 	})
 
 	t.Run("NotFound", func(t *testing.T) {

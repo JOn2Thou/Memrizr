@@ -22,7 +22,7 @@ func TestSignup(t *testing.T) {
 	t.Run("Email and Password Required", func(t *testing.T) {
 		// We just want this to show that it's not called in this case
 		mockUserService := new(mocks.MockUserService)
-		mockUserService.On("Signup", mock.AnythingOfType("*gin.Context"), mock.AnythingOfType("*model.User")).Return(nil)
+		mockUserService.On("Signup", mock.AnythingOfType("*context.emptyCtx"), mock.AnythingOfType("*model.User")).Return(nil)
 
 		// a response recorder for getting written http response
 		rr := httptest.NewRecorder()
@@ -56,7 +56,7 @@ func TestSignup(t *testing.T) {
 	t.Run("Invalid email", func(t *testing.T) {
 		// We just want this to show that it's not called in this case
 		mockUserService := new(mocks.MockUserService)
-		mockUserService.On("Signup", mock.AnythingOfType("*gin.Context"), mock.AnythingOfType("*model.User")).Return(nil)
+		mockUserService.On("Signup", mock.AnythingOfType("*context.emptyCtx"), mock.AnythingOfType("*model.User")).Return(nil)
 
 		// a response recorder for getting written http response
 		rr := httptest.NewRecorder()
@@ -164,7 +164,7 @@ func TestSignup(t *testing.T) {
 		}
 
 		mockUserService := new(mocks.MockUserService)
-		mockUserService.On("Signup", mock.AnythingOfType("*gin.Context"), u).Return(apperrors.NewConflict("User Already Exists", u.Email))
+		mockUserService.On("Signup", mock.Anything, u).Return(apperrors.NewConflict("User Already Exists", u.Email))
 
 		// a response recorder for getting written http response
 		rr := httptest.NewRecorder()
@@ -194,5 +194,122 @@ func TestSignup(t *testing.T) {
 
 		assert.Equal(t, 409, rr.Code)
 		mockUserService.AssertExpectations(t)
+	})
+
+	t.Run("Successful Token Creation", func(t *testing.T) {
+		u := &model.User{
+			Email:    "bob@bob.com",
+			Password: "avalidpassword",
+		}
+
+		mockTokenResp := &model.TokenPair{
+			IDToken:      "idToken",
+			RefreshToken: "refreshToken",
+		}
+
+		mockUserService := new(mocks.MockUserService)
+		mockTokenService := new(mocks.MockTokenService)
+
+		mockUserService.
+			On("Signup", mock.Anything, u).
+			Return(nil)
+		mockTokenService.
+			On("NewPairFromUser", mock.Anything, u, "").
+			Return(mockTokenResp, nil)
+
+		// a response recorder for getting written http response
+		rr := httptest.NewRecorder()
+
+		// don't need a middleware as we don't yet have authorized user
+		router := gin.Default()
+
+		NewHandler(&Config{
+			R:            router,
+			UserService:  mockUserService,
+			TokenService: mockTokenService,
+		})
+
+		// create a request body with empty email and password
+		reqBody, err := json.Marshal(gin.H{
+			"email":    u.Email,
+			"password": u.Password,
+		})
+		assert.NoError(t, err)
+
+		// use bytes.NewBuffer to create a reader
+		request, err := http.NewRequest(http.MethodPost, "/signup", bytes.NewBuffer(reqBody))
+		assert.NoError(t, err)
+
+		request.Header.Set("Content-Type", "application/json")
+
+		router.ServeHTTP(rr, request)
+
+		respBody, err := json.Marshal(gin.H{
+			"tokens": mockTokenResp,
+		})
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusCreated, rr.Code)
+		assert.Equal(t, respBody, rr.Body.Bytes())
+
+		mockUserService.AssertExpectations(t)
+		mockTokenService.AssertExpectations(t)
+	})
+
+	t.Run("Failed Token Creation", func(t *testing.T) {
+		u := &model.User{
+			Email:    "bob@bob.com",
+			Password: "avalidpassword",
+		}
+
+		mockErrorResponse := apperrors.NewInternal()
+
+		mockUserService := new(mocks.MockUserService)
+		mockTokenService := new(mocks.MockTokenService)
+
+		mockUserService.
+			On("Signup", mock.Anything, u).
+			Return(nil)
+		mockTokenService.
+			On("NewPairFromUser", mock.Anything, u, "").
+			Return(nil, mockErrorResponse)
+
+		// a response recorder for getting written http response
+		rr := httptest.NewRecorder()
+
+		// don't need a middleware as we don't yet have authorized user
+		router := gin.Default()
+
+		NewHandler(&Config{
+			R:            router,
+			UserService:  mockUserService,
+			TokenService: mockTokenService,
+		})
+
+		// create a request body with empty email and password
+		reqBody, err := json.Marshal(gin.H{
+			"email":    u.Email,
+			"password": u.Password,
+		})
+		assert.NoError(t, err)
+
+		// use bytes.NewBuffer to create a reader
+		request, err := http.NewRequest(http.MethodPost, "/signup", bytes.NewBuffer(reqBody))
+		assert.NoError(t, err)
+
+		request.Header.Set("Content-Type", "application/json")
+
+		router.ServeHTTP(rr, request)
+
+		respBody, err := json.Marshal(gin.H{
+			"error": mockErrorResponse,
+		})
+		assert.NoError(t, err)
+
+		assert.Equal(t, mockErrorResponse.Status(), rr.Code)
+		assert.Equal(t, respBody, rr.Body.Bytes())
+
+		mockUserService.AssertExpectations(t)
+		mockTokenService.AssertExpectations(t)
 	})
 }
